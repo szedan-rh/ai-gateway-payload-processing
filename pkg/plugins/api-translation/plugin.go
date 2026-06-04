@@ -135,11 +135,21 @@ func (p *APITranslationPlugin) WithName(name string) *APITranslationPlugin {
 
 // ProcessRequest reads the provider from CycleState (set by an upstream plugin) and translates
 // the request body from OpenAI format to the provider's native format if needed.
+// When the incoming client format matches the upstream API format (passthrough mode),
+// translation is skipped entirely.
 func (p *APITranslationPlugin) ProcessRequest(ctx context.Context, cycleState *framework.CycleState, request *framework.InferenceRequest) error {
 	logger := log.FromContext(ctx).V(logutil.DEFAULT)
 
 	providerName, err := framework.ReadCycleStateKey[string](cycleState, state.ProviderKey) // err if not found
 	if err != nil || providerName == "" {                                                   // empty provider means no translation needed
+		return nil
+	}
+
+	incomingFormat, _ := framework.ReadCycleStateKey[string](cycleState, state.InputAPIFormatKey)
+	apiFormat, _ := framework.ReadCycleStateKey[string](cycleState, state.APIFormatKey)
+	if incomingFormat != "" && apiFormat != "" && incomingFormat == apiFormat {
+		logger.Info("passthrough mode — skipping request translation", "incomingFormat", incomingFormat, "apiFormat", apiFormat)
+		request.RemoveHeader("authorization")
 		return nil
 	}
 
@@ -182,11 +192,19 @@ func (p *APITranslationPlugin) ProcessRequest(ctx context.Context, cycleState *f
 
 // ProcessResponse reads the provider from CycleState and translates the response
 // back to OpenAI Chat Completions format if needed.
+// When in passthrough mode, translation is skipped.
 func (p *APITranslationPlugin) ProcessResponse(ctx context.Context, cycleState *framework.CycleState, response *framework.InferenceResponse) error {
 	logger := log.FromContext(ctx).V(logutil.DEFAULT)
 
 	providerName, err := framework.ReadCycleStateKey[string](cycleState, state.ProviderKey) // err if not found
 	if err != nil || providerName == "" {                                                   // empty provider means no translation needed
+		return nil
+	}
+
+	incomingFormat, _ := framework.ReadCycleStateKey[string](cycleState, state.InputAPIFormatKey)
+	apiFormat, _ := framework.ReadCycleStateKey[string](cycleState, state.APIFormatKey)
+	if incomingFormat != "" && apiFormat != "" && incomingFormat == apiFormat {
+		logger.Info("passthrough mode — skipping response translation", "incomingFormat", incomingFormat)
 		return nil
 	}
 
