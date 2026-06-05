@@ -147,7 +147,7 @@ func (p *APITranslationPlugin) ProcessRequest(ctx context.Context, cycleState *f
 
 	incomingFormat, _ := framework.ReadCycleStateKey[string](cycleState, state.InputAPIFormatKey)
 	apiFormat, _ := framework.ReadCycleStateKey[string](cycleState, state.APIFormatKey)
-	if incomingFormat != "" && apiFormat != "" && incomingFormat == apiFormat {
+	if incomingFormat != "" && apiFormat != "" && incomingFormat == apiFormat && incomingFormat != "openai" {
 		logger.Info("passthrough mode — skipping request translation", "incomingFormat", incomingFormat, "apiFormat", apiFormat)
 		request.RemoveHeader("authorization")
 		return nil
@@ -203,7 +203,7 @@ func (p *APITranslationPlugin) ProcessResponse(ctx context.Context, cycleState *
 
 	incomingFormat, _ := framework.ReadCycleStateKey[string](cycleState, state.InputAPIFormatKey)
 	apiFormat, _ := framework.ReadCycleStateKey[string](cycleState, state.APIFormatKey)
-	if incomingFormat != "" && apiFormat != "" && incomingFormat == apiFormat {
+	if incomingFormat != "" && apiFormat != "" && incomingFormat == apiFormat && incomingFormat != "openai" {
 		logger.Info("passthrough mode — skipping response translation", "incomingFormat", incomingFormat)
 		return nil
 	}
