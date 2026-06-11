@@ -151,7 +151,6 @@ func TestSelectByWeight_Distribution(t *testing.T) {
 		counts[selected.provider]++
 	}
 
-	// With 80/20 weights over 1000 iterations, openai should get ~800 (+/- ~50)
 	require.Greater(t, counts["openai"], 700, "openai should get majority of traffic")
 	require.Greater(t, counts["anthropic"], 100, "anthropic should get some traffic")
 }
@@ -169,8 +168,103 @@ func TestSelectByWeight_EqualWeights(t *testing.T) {
 		counts[selected.provider]++
 	}
 
-	// Each should get ~300 (+/- ~50)
 	for _, p := range []string{"a", "b", "c"} {
 		require.Greater(t, counts[p], 200, "%s should get roughly equal traffic", p)
+	}
+}
+
+func TestProcessRequest_AnthropicMessages(t *testing.T) {
+	store := newInfoStore()
+	store.addOrUpdateModel(
+		types.NamespacedName{Namespace: "llm", Name: "claude"},
+		&externalModelInfo{refs: []resolvedProviderRef{{
+			provider: provider.Anthropic, targetModel: "claude-opus-4-6",
+			apiFormat: "messages", secretName: "key", secretNamespace: "llm",
+			config: map[string]string{}, weight: 1,
+		}}},
+	)
+
+	p := &ModelProviderResolverPlugin{store: store}
+	cs := framework.NewCycleState()
+	req := framework.NewInferenceRequest()
+	req.Headers[":path"] = "/llm/claude/v1/messages"
+	req.Body["model"] = "claude-opus-4-6"
+
+	err := p.ProcessRequest(context.Background(), cs, req)
+	require.NoError(t, err)
+
+	inputFmt, err := framework.ReadCycleStateKey[string](cs, state.InputAPIFormatKey)
+	require.NoError(t, err)
+	require.Equal(t, "messages", inputFmt)
+
+	apiFormat, err := framework.ReadCycleStateKey[string](cs, state.APIFormatKey)
+	require.NoError(t, err)
+	require.Equal(t, "messages", apiFormat)
+}
+
+func TestProcessRequest_OpenAIResponses(t *testing.T) {
+	store := newInfoStore()
+	store.addOrUpdateModel(
+		types.NamespacedName{Namespace: "llm", Name: "gpt"},
+		&externalModelInfo{refs: []resolvedProviderRef{{
+			provider: provider.OpenAI, targetModel: "gpt-5.5",
+			apiFormat: "openai-chat", secretName: "key", secretNamespace: "llm",
+			config: map[string]string{}, weight: 1,
+		}}},
+	)
+
+	p := &ModelProviderResolverPlugin{store: store}
+	cs := framework.NewCycleState()
+	req := framework.NewInferenceRequest()
+	req.Headers[":path"] = "/llm/gpt/v1/responses"
+	req.Body["model"] = "gpt-5.5"
+
+	err := p.ProcessRequest(context.Background(), cs, req)
+	require.NoError(t, err)
+
+	inputFmt, err := framework.ReadCycleStateKey[string](cs, state.InputAPIFormatKey)
+	require.NoError(t, err)
+	require.Equal(t, "openai-responses", inputFmt)
+}
+
+func TestProcessRequest_UnsupportedPath(t *testing.T) {
+	store := newInfoStore()
+	store.addOrUpdateModel(
+		types.NamespacedName{Namespace: "llm", Name: "model"},
+		&externalModelInfo{refs: []resolvedProviderRef{{
+			provider: provider.OpenAI, targetModel: "gpt-4o",
+			apiFormat: "openai-chat", secretName: "key", secretNamespace: "llm",
+			config: map[string]string{}, weight: 1,
+		}}},
+	)
+
+	p := &ModelProviderResolverPlugin{store: store}
+	cs := framework.NewCycleState()
+	req := framework.NewInferenceRequest()
+	req.Headers[":path"] = "/llm/model/v1/unknown"
+	req.Body["model"] = "gpt-4o"
+
+	err := p.ProcessRequest(context.Background(), cs, req)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported API path")
+}
+
+func TestDetectInputAPIFormat(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected string
+	}{
+		{"llm/model/v1/chat/completions", "openai-chat"},
+		{"llm/model/v1/messages", "messages"},
+		{"llm/model/v1/responses", "openai-responses"},
+		{"llm/model/v1/unknown", ""},
+		{"llm/model/v1/models", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			result := detectInputAPIFormat(tt.path)
+			require.Equal(t, tt.expected, result)
+		})
 	}
 }

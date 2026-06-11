@@ -161,30 +161,43 @@ func (p *ModelProviderResolverPlugin) ProcessRequest(ctx context.Context, cycleS
 		return nil // not an external model — pass through for internal models
 	}
 
-	if !strings.HasSuffix(relativePath, "chat/completions") {
-		logger.Error(nil, "unsupported route for external model", "model", modelKey.String(), "path", relativePath)
-		return errcommon.Error{Code: errcommon.BadRequest, Msg: "only /chat/completions input type is supported"}
+	inputFormat := detectInputAPIFormat(relativePath)
+	if inputFormat == "" {
+		logger.Error(nil, "unsupported API path for external model", "model", modelKey.String(), "path", relativePath)
+		return errcommon.Error{Code: errcommon.BadRequest, Msg: fmt.Sprintf("unsupported API path: %s", relativePath)}
 	}
 
-	// select a provider ref based on weights
 	ref := selectByWeight(modelInfo.refs)
 
-	// model in request body must match the selected ref's targetModel
 	if ref.targetModel != model {
 		logger.Error(nil, "model mismatch between request body and ExternalModel", "requestModel", model, "externalModel", ref.targetModel)
 		return errcommon.Error{Code: errcommon.NotFound, Msg: fmt.Sprintf("model in request body '%s' doesn't match ExternalModel", model)}
 	}
 
-	// write resolved info to CycleState for downstream plugins (api-translation, apikey-injection)
 	cycleState.Write(state.ProviderKey, ref.provider)
 	cycleState.Write(state.ModelKey, ref.targetModel)
 	cycleState.Write(state.APIFormatKey, ref.apiFormat)
 	cycleState.Write(state.CredsRefName, ref.secretName)
 	cycleState.Write(state.CredsRefNamespace, ref.secretNamespace)
 	cycleState.Write(state.ModelConfigKey, ref.config)
+	cycleState.Write(state.InputAPIFormatKey, inputFormat)
 
-	logger.Info("external model resolved", "model", modelKey.String(), "provider", ref.provider)
+	logger.Info("external model resolved", "model", modelKey.String(), "provider", ref.provider, "inputFormat", inputFormat, "apiFormat", ref.apiFormat)
 	return nil
+}
+
+// detectInputAPIFormat determines the client's API format from the request path suffix.
+func detectInputAPIFormat(path string) string {
+	switch {
+	case strings.HasSuffix(path, "/v1/chat/completions"):
+		return "openai-chat"
+	case strings.HasSuffix(path, "/v1/messages"):
+		return "messages"
+	case strings.HasSuffix(path, "/v1/responses"):
+		return "openai-responses"
+	default:
+		return ""
+	}
 }
 
 // selectByWeight picks a provider ref using weighted random selection.
