@@ -40,7 +40,7 @@ type ExternalProvider struct {
 // ExternalProviderSpec defines the desired state of ExternalProvider.
 type ExternalProviderSpec struct {
 	// Provider identifies the API type for this provider.
-	// e.g. "openai", "anthropic", "azure", "aws-bedrock", "vertex".
+	// e.g. "openai", "anthropic", "azure", "aws-bedrock", "vertex", "gemini".
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63

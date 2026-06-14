@@ -33,6 +33,7 @@ import (
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/api-translation/translator/anthropic"
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/api-translation/translator/azure"
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/api-translation/translator/bedrock"
+	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/api-translation/translator/gemini"
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/api-translation/translator/openai"
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/api-translation/translator/vertex"
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/common/apiformat"
@@ -87,6 +88,7 @@ func NewAPITranslationPlugin(ctx context.Context, config apiTranslationConfig) (
 		provider.Anthropic:     anthropic.NewAnthropicTranslator(),
 		provider.AzureOpenAI:   azure.NewAzureOpenAITranslator(),
 		provider.BedrockOpenAI: bedrock.NewBedrockOpenAITranslator(),
+		provider.Gemini:        gemini.NewGeminiTranslator(),
 	}
 
 	if config.VertexOpenAI != nil {

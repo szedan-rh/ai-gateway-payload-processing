@@ -81,6 +81,7 @@ func NewAPIKeyInjectionPlugin(reconcilerBuilder func() *builder.Builder, clientR
 			provider.VertexOpenAI:  &authgenerator.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
 			provider.BedrockOpenAI: &authgenerator.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
 			provider.AWSBedrock:    &authgenerator.SigV4AuthGenerator{},
+			provider.Gemini:        &authgenerator.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
 		},
 		store: store,
 	}), nil
