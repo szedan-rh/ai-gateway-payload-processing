@@ -102,7 +102,7 @@ spec:
               provider:
                 description: |-
                   Provider identifies the API type for this provider.
-                  e.g. "openai", "anthropic", "azure", "aws-bedrock", "vertex".
+                  e.g. "openai", "anthropic", "azure", "aws-bedrock", "vertex", "gemini".
                 maxLength: 63
                 minLength: 1
                 type: string
