@@ -78,9 +78,10 @@ func TestProcessRequest_NoInternalHeaders(t *testing.T) {
 
 	assert.Equal(t, "application/json", req.Headers["content-type"])
 
-	// No maas-headers entry in CycleState
-	_, err = plugin.ReadCycleStateKey[map[string]string](cs, MaaSHeadersKey)
-	assert.Error(t, err)
+	// Empty map in CycleState (always written, even when no maas headers found)
+	captured, err := plugin.ReadCycleStateKey[map[string]string](cs, MaaSHeadersKey)
+	require.NoError(t, err)
+	assert.Empty(t, captured)
 }
 
 func TestProcessRequest_CaseInsensitive(t *testing.T) {

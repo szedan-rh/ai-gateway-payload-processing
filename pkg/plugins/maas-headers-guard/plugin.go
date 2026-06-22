@@ -70,9 +70,7 @@ func (p *Plugin) ProcessRequest(ctx context.Context, cycleState *plugin.CycleSta
 		logger.Info("internal header captured and stripped", "header", key)
 	}
 
-	if len(captured) > 0 {
-		cycleState.Write(MaaSHeadersKey, captured)
-	}
+	cycleState.Write(MaaSHeadersKey, captured)
 
 	return nil
 }
