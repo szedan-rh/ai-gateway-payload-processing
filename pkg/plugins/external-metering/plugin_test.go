@@ -19,8 +19,10 @@ package external_metering
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -743,4 +745,89 @@ func TestProcessResponseChunk_MissingUsername(t *testing.T) {
 	err = sp.ProcessResponseChunk(context.Background(), cs, resp,
 		`data: {"usage":{"input_tokens":10,"output_tokens":5}}`, true)
 	assert.NoError(t, err)
+}
+
+// TestProcessResponseChunk_ErrorResponseReported verifies that a provider error
+// body (no usage anywhere in the stream) is reported as an
+// inference.request.error event instead of being silently dropped.
+func TestProcessResponseChunk_ErrorResponseReported(t *testing.T) {
+	var received map[string]any
+	var reported sync.WaitGroup
+	reported.Add(1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(body, &received)
+			reported.Done()
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer srv.Close()
+
+	raw := json.RawMessage(`{"meteringURL":"` + srv.URL + `","failOpen":true}`)
+	p, err := ExternalMeteringStreamingFactory("metering", raw, nil)
+	require.NoError(t, err)
+	sp := p.(*ExternalMeteringStreamingPlugin)
+
+	cs := plugin.NewCycleState()
+	cs.Write(state.MeteringUsernameKey, "alice")
+	cs.Write(state.MeteringGroupKey, "ai-eng")
+	cs.Write(state.MeteringSubscriptionKey, "ai-eng")
+	cs.Write(state.MeteringModelKey, "claude-sonnet-4-6")
+	resp := requesthandling.NewInferenceResponse()
+	resp.Headers[":status"] = "400"
+
+	errBody := `{"type":"error","error":{"type":"invalid_request_error","message":"context_management: Extra inputs are not permitted"}}`
+	mid := len(errBody) / 2
+
+	require.NoError(t, sp.ProcessResponseChunk(context.Background(), cs, resp, errBody[:mid], false))
+	require.NoError(t, sp.ProcessResponseChunk(context.Background(), cs, resp, errBody[mid:], false))
+	require.NoError(t, sp.ProcessResponseChunk(context.Background(), cs, resp, "", true))
+
+	reported.Wait()
+	assert.Equal(t, "inference.request.error", received["type"])
+	data, ok := received["data"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "alice", data["user"])
+	assert.Equal(t, float64(400), data["status_code"])
+	assert.Equal(t, "invalid_request_error", data["error_type"])
+}
+
+// TestExtractErrorFromResponse_TruncatesLongMessage verifies provider error text
+// is capped before being persisted to metering.
+func TestExtractErrorFromResponse_TruncatesLongMessage(t *testing.T) {
+	long := strings.Repeat("x", 2*maxErrorMessageLen)
+	buf := `{"type":"error","error":{"type":"invalid_request_error","message":"` + long + `"}}`
+
+	resp := requesthandling.NewInferenceResponse()
+	resp.Headers[":status"] = "400"
+
+	info := extractErrorFromResponse(buf, resp)
+	require.NotNil(t, info)
+	msg, ok := info["error_message"].(string)
+	require.True(t, ok)
+	assert.LessOrEqual(t, len(msg), maxErrorMessageLen+len("…"))
+	assert.Equal(t, 400, info["status_code"])
+}
+
+// TestExtractErrorFromResponse_MalformedBufferNotMisparsed verifies that a buffer
+// that fails full-body and per-line JSON parsing yields nil rather than acting on
+// a partially-filled map.
+func TestExtractErrorFromResponse_MalformedBufferNotMisparsed(t *testing.T) {
+	// Valid prefix that would partially fill the map before the syntax error.
+	buf := `{"error":{"type":"invalid_request_error","message":"boom"},INVALID`
+
+	info := extractErrorFromResponse(buf, nil)
+	assert.Nil(t, info, "partially-parsed garbage must not produce an error event")
+}
+
+// TestExtractErrorFromResponse_NonNumericStatus verifies a garbage :status header
+// degrades to status_code 0 rather than failing.
+func TestExtractErrorFromResponse_NonNumericStatus(t *testing.T) {
+	resp := requesthandling.NewInferenceResponse()
+	resp.Headers[":status"] = "abc"
+
+	info := extractErrorFromResponse(`{"error":{"type":"x","message":"y"}}`, resp)
+	require.NotNil(t, info)
+	assert.Equal(t, 0, info["status_code"])
 }
