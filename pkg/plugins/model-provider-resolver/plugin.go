@@ -134,7 +134,6 @@ func (p *ModelProviderResolverPlugin) ProcessRequest(ctx context.Context, cycleS
 	}
 
 	log.FromContext(ctx).V(logutil.VERBOSE).Info("received incoming request", "path", request.Headers[":path"])
-	relativePath := sanitizePath(request.Headers[":path"])
 
 	// Resolve by model name: prefer X-Gateway-Model-Name header (set by body-field-to-header),
 	// fall back to request body model field. This supports both single-URL and per-model-URL patterns.
@@ -145,11 +144,25 @@ func (p *ModelProviderResolverPlugin) ProcessRequest(ctx context.Context, cycleS
 
 	modelInfo, found := p.store.getModelByName(modelName)
 	if !found {
-		return nil // not an external model — pass through for internal models
+		// LLMISvc BBR: client sent publisher ID (publishers/{ns}/models/{name}) in body,
+		// as returned by KServe GET /v1/models. X-Gateway-Model-Name header already has
+		// the publisher ID (set by body-field-to-header) — do not modify it, KServe routes on it.
+		// Rewrite body model field so vLLM receives just the model name.
+		// Write publisher ID to CycleState so ipp-post (metering, api-translation) can use it.
+		if strings.HasPrefix(modelName, "publishers/") {
+			if parts := strings.SplitN(modelName, "/models/", 2); len(parts) == 2 && parts[1] != "" {
+				request.SetBodyField("model", parts[1])
+				cycleState.Write(state.ModelKey, modelName)
+				logger.Info("LLMISvc BBR: rewrote body model field",
+					"original", modelName, "rewritten", parts[1])
+			}
+		}
+		return nil
 	}
 
 	logger.Info("resolved model by name", "modelName", modelName)
 
+	relativePath := sanitizePath(request.Headers[":path"])
 	inputFormat := detectInputAPIFormat(relativePath)
 	if inputFormat == "" {
 		logger.Error(nil, "unsupported API path for external model", "model", modelName, "path", relativePath)

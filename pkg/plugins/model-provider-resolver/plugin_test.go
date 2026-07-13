@@ -319,6 +319,51 @@ func TestProcessRequest_UnsupportedPath(t *testing.T) {
 	require.Contains(t, err.Error(), "unsupported API endpoint")
 }
 
+func TestProcessRequest_LLMISvcPublisherIDBodyRewrite(t *testing.T) {
+	const publisherID = "publishers/llm/models/facebook/opt-125m"
+	const modelName = "facebook/opt-125m"
+
+	store := newInfoStore()
+	instance := &ModelProviderResolverPlugin{store: store}
+	cs := plugin.NewCycleState()
+	req := requesthandling.NewInferenceRequest()
+	req.Headers[":path"] = "/v1/chat/completions"
+	req.Headers["x-gateway-model-name"] = publisherID
+	req.Body["model"] = publisherID
+
+	err := instance.ProcessRequest(context.Background(), cs, req)
+	require.NoError(t, err)
+
+	require.Equal(t, modelName, req.Body["model"],
+		"body model field should be rewritten to just the model name for vLLM")
+	require.Equal(t, publisherID, req.Headers["x-gateway-model-name"],
+		"X-Gateway-Model-Name header must not be modified — KServe routes on it")
+
+	resolvedModel, err := plugin.ReadCycleStateKey[string](cs, state.ModelKey)
+	require.NoError(t, err)
+	require.Equal(t, publisherID, resolvedModel,
+		"publisher ID should be written to CycleState for ipp-post metering and response restoration")
+
+	_, provErr := plugin.ReadCycleStateKey[string](cs, state.ProviderKey)
+	require.Error(t, provErr, "no provider should be set for LLMISvc models")
+}
+
+func TestProcessRequest_LLMISvcPublisherIDPassThroughWhenMalformed(t *testing.T) {
+	store := newInfoStore()
+	instance := &ModelProviderResolverPlugin{store: store}
+	cs := plugin.NewCycleState()
+	req := requesthandling.NewInferenceRequest()
+	req.Headers[":path"] = "/v1/chat/completions"
+	// No "/models/" segment — should pass through without rewriting
+	req.Headers["x-gateway-model-name"] = "publishers/llm/nope"
+	req.Body["model"] = "publishers/llm/nope"
+
+	err := instance.ProcessRequest(context.Background(), cs, req)
+	require.NoError(t, err, "malformed publisher ID should pass through without error")
+	require.Equal(t, "publishers/llm/nope", req.Body["model"],
+		"malformed publisher ID body should not be rewritten")
+}
+
 func TestDetectInputAPIFormat(t *testing.T) {
 	tests := []struct {
 		path     string
