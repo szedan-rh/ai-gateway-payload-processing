@@ -26,26 +26,22 @@ import (
 	"os"
 
 	ctrl "sigs.k8s.io/controller-runtime"
-	"github.com/llm-d/llm-d-inference-payload-processor/cmd/runner"
-
-	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins"
+	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func main() {
-	// Register ai-gateway payload processing plugins with pluggable bbr
-	plugins.RegisterPlugins()
-
-	if err := runner.NewRunner().
-		WithExecutableName("ai-gateway-payload-processing").
-		WithCustomControllers(
+	if err := run(
+		ctrl.SetupSignalHandler(),
+		[]func(client.Client, *ctrlbuilder.Builder) error{
 			providerController(),
 			modelController(
 				os.Getenv("GATEWAY_NAME"),
 				os.Getenv("GATEWAY_NAMESPACE"),
 			),
 			legacyMigrationController(),
-		).
-		Run(ctrl.SetupSignalHandler()); err != nil {
+		},
+	); err != nil {
 		os.Exit(1)
 	}
 }
