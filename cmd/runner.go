@@ -82,6 +82,9 @@ var setupLog = ctrl.Log.WithName("setup")
 // It reuses all upstream public APIs but wraps the ext-proc server with
 // dynamicmetadata.WrapServer before registration, enabling plugins to set
 // ProcessingResponse.DynamicMetadata via pseudo-headers.
+//
+// Based on github.com/llm-d/llm-d-inference-payload-processor/cmd/runner/runner.go
+// at v0.1.0-rc.4. Check for upstream changes when bumping the dependency.
 func run(ctx context.Context,
 	controllers []func(client.Client, *ctrlbuilder.Builder) error,
 	customCollectors ...prometheus.Collector,
@@ -257,6 +260,7 @@ func newExtProcRunnable(extProcServer extProcPb.ExternalProcessorServer, port in
 			}
 			creds := credentials.NewTLS(&tls.Config{
 				Certificates: []tls.Certificate{cert},
+				MinVersion:   tls.VersionTLS12,
 				NextProtos:   []string{"h2"},
 			})
 			srv = grpc.NewServer(grpc.Creds(creds))

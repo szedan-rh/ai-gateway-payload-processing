@@ -34,20 +34,40 @@ func (w *wrappedStream) Send(resp *extProcPb.ProcessingResponse) error {
 	return w.ExternalProcessor_ProcessServer.Send(resp)
 }
 
+// commonResponse extracts the CommonResponse from any ProcessingResponse variant
+// that carries header mutations (RequestHeaders, ResponseHeaders, RequestBody, ResponseBody).
+func commonResponse(resp *extProcPb.ProcessingResponse) *extProcPb.CommonResponse {
+	switch r := resp.Response.(type) {
+	case *extProcPb.ProcessingResponse_RequestHeaders:
+		if r.RequestHeaders != nil {
+			return r.RequestHeaders.Response
+		}
+	case *extProcPb.ProcessingResponse_ResponseHeaders:
+		if r.ResponseHeaders != nil {
+			return r.ResponseHeaders.Response
+		}
+	case *extProcPb.ProcessingResponse_RequestBody:
+		if r.RequestBody != nil {
+			return r.RequestBody.Response
+		}
+	case *extProcPb.ProcessingResponse_ResponseBody:
+		if r.ResponseBody != nil {
+			return r.ResponseBody.Response
+		}
+	}
+	return nil
+}
+
 // extractAndInjectMetadata finds the pseudo-header in the response's header
-// mutations, removes it, and populates resp.DynamicMetadata.
+// mutations, removes it, and populates resp.DynamicMetadata. Works across all
+// response types to prevent the internal pseudo-header from leaking to Envoy.
 func extractAndInjectMetadata(resp *extProcPb.ProcessingResponse) {
-	reqHeaders, ok := resp.Response.(*extProcPb.ProcessingResponse_RequestHeaders)
-	if !ok || reqHeaders.RequestHeaders == nil ||
-		reqHeaders.RequestHeaders.Response == nil ||
-		reqHeaders.RequestHeaders.Response.HeaderMutation == nil {
+	cr := commonResponse(resp)
+	if cr == nil || cr.HeaderMutation == nil || len(cr.HeaderMutation.SetHeaders) == 0 {
 		return
 	}
 
-	hm := reqHeaders.RequestHeaders.Response.HeaderMutation
-	if len(hm.SetHeaders) == 0 {
-		return
-	}
+	hm := cr.HeaderMutation
 
 	var e entry
 	var parsed bool
